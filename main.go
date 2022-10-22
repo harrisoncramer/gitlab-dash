@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -16,7 +17,8 @@ func main() {
 	p := tea.NewProgram(model{
 		response: make(chan []byte),
 		spinner:  spinner.NewModel(),
-	})
+		loading:  true,
+	}, tea.WithAltScreen())
 
 	if p.Start() != nil {
 		fmt.Println("could not start program")
@@ -25,20 +27,27 @@ func main() {
 }
 
 type responseMsg []byte
+type MR struct {
+	Description string `json:"description"`
+	Title       string `json:"title"`
+}
 
 /* Sends some data to the channel upon completion of the GET */
 func listenForActivity(response chan []byte) tea.Cmd {
 	return func() tea.Msg {
 		for {
 			req, err := http.NewRequest("GET", "https://gitlab.com/api/v4/projects/40444811/merge_requests", nil)
-			req.Header.Set("PRIVATE-TOKEN", "private-token")
+			req.Header.Set("PRIVATE-TOKEN", "glpat-WbMsVxMocvYW7U-NB1MS")
 			utils.Must("Error setting up request: %g", err)
 
 			client := &http.Client{}
 			resp, err := client.Do(req)
+
 			utils.Must("Error fetching MRs: %g", err)
+			defer resp.Body.Close()
 
 			r, err := ioutil.ReadAll(resp.Body)
+
 			utils.Must("Error reading body response: %g", err)
 
 			response <- r
@@ -60,9 +69,10 @@ func waitForActivity(response chan []byte) tea.Cmd {
 }
 
 type model struct {
-	response  chan []byte
-	responses int
-	spinner   spinner.Model
+	response chan []byte
+	loading  bool
+	spinner  spinner.Model
+	json     []MR
 }
 
 func (m model) Init() tea.Cmd {
@@ -83,7 +93,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case responseMsg:
-		m.responses++
+		m.loading = false
+		r := <-m.response
+		var jsonData []MR
+		err := json.Unmarshal(r, &jsonData)
+		utils.Must("Error unmarshalling data: %g", err)
+		m.json = jsonData
 		return m, nil
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -95,9 +110,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	if m.responses == 0 {
-		return fmt.Sprintf("%s Events received: %d\n\nPress any key to exit\n", m.spinner.View(), m.responses)
+	if m.loading {
+		return m.spinner.View()
+	} else if len(m.json) != 0 {
+		return m.json[0].Title
 	} else {
-		return string(<-m.response)
+		return "Done."
 	}
 }
