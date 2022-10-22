@@ -1,12 +1,14 @@
 package main
 
 import (
-	"fmt"
-	"os"
+	"io/ioutil"
+	"log"
+	"net/http"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	utils "github.com/harrisoncramer/gitlab-dash/utils"
 )
 
 var docStyle = lipgloss.NewStyle().Margin(1, 2)
@@ -48,7 +50,15 @@ func (m model) View() string {
 	return docStyle.Render(m.list.View())
 }
 
+/* Unmarshal the JSON here */
+type MergeRequest struct {
+	title       string
+	description string
+	open        bool
+}
+
 func main() {
+
 	items := []list.Item{
 		item{title: "Raspberry Pi’s", desc: "I have ’em all over my house"},
 		item{title: "Nutella", desc: "It's good on toast"},
@@ -80,8 +90,19 @@ func main() {
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
-	if err := p.Start(); err != nil {
-		fmt.Println("Error running program:", err)
-		os.Exit(1)
-	}
+	err := p.Start()
+	utils.Must("Error running program: %g", err)
+
+	req, err := http.NewRequest("GET", "https://gitlab.com/api/v4/projects/40444811/merge_requests", nil)
+	req.Header.Set("PRIVATE-TOKEN", "private-token-here")
+	utils.Must("Error setting up requet: %g", err)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	utils.Must("Error fetching MRs: %g", err)
+
+	body, err := ioutil.ReadAll(resp.Body)
+	utils.Must("Error reading body response: %g", err)
+
+	log.Println(string(body))
 }
