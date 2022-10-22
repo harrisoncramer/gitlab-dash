@@ -106,11 +106,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	// if m.loading {
-	// 	return m.spinner.View()
-	// } else {
-	return docStyle.Render(m.list.View())
-	// }
+	if m.loading {
+		return m.spinner.View()
+	} else {
+		return docStyle.Render(m.list.View())
+	}
 }
 
 /* Sends some data to the channel upon completion of the GET */
@@ -130,6 +130,8 @@ func listenForActivity(response chan []byte) tea.Cmd {
 			r, err := ioutil.ReadAll(resp.Body)
 
 			utils.Must("Error reading body response: %g", err)
+
+			// Check Status of response
 
 			response <- r
 		}
