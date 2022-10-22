@@ -1,32 +1,76 @@
 package main
 
 import (
+	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
+	"os"
 
-	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	utils "github.com/harrisoncramer/gitlab-dash/utils"
+	"github.com/harrisoncramer/gitlab-dash/utils"
 )
 
-var docStyle = lipgloss.NewStyle().Margin(1, 2)
+func main() {
 
-type item struct {
-	title, desc string
+	p := tea.NewProgram(model{
+		response: make(chan []byte),
+		spinner:  spinner.NewModel(),
+	})
+
+	if p.Start() != nil {
+		fmt.Println("could not start program")
+		os.Exit(1)
+	}
 }
 
-func (i item) Title() string       { return i.title }
-func (i item) Description() string { return i.desc }
-func (i item) FilterValue() string { return i.title }
+type responseMsg []byte
+
+/* Sends some data to the channel upon completion of the GET */
+func listenForActivity(response chan []byte) tea.Cmd {
+	return func() tea.Msg {
+		for {
+			req, err := http.NewRequest("GET", "https://gitlab.com/api/v4/projects/40444811/merge_requests", nil)
+			req.Header.Set("PRIVATE-TOKEN", "private-token")
+			utils.Must("Error setting up request: %g", err)
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			utils.Must("Error fetching MRs: %g", err)
+
+			r, err := ioutil.ReadAll(resp.Body)
+			utils.Must("Error reading body response: %g", err)
+
+			response <- r
+		}
+	}
+}
+
+func handleResponse(response []byte) tea.Cmd {
+	return func() tea.Msg {
+		return "hi"
+	}
+}
+
+// Put the channel's data into a response byte slice. This will be returned back to the Update function
+func waitForActivity(response chan []byte) tea.Cmd {
+	return func() tea.Msg {
+		return responseMsg(<-response)
+	}
+}
 
 type model struct {
-	list list.Model
+	response  chan []byte
+	responses int
+	spinner   spinner.Model
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return tea.Batch(
+		spinner.Tick,
+		listenForActivity(m.response), // generate activity
+		waitForActivity(m.response),   // wait for activity
+	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -35,74 +79,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q", "esc":
 			return m, tea.Quit
+		default:
+			return m, nil
 		}
-	case tea.WindowSizeMsg:
-		h, v := docStyle.GetFrameSize()
-		m.list.SetSize(msg.Width-h, msg.Height-v)
+	case responseMsg:
+		m.responses++
+		return m, nil
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	default:
+		return m, nil
 	}
-
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
 }
 
 func (m model) View() string {
-	return docStyle.Render(m.list.View())
-}
-
-/* Unmarshal the JSON here */
-type MergeRequest struct {
-	title       string
-	description string
-	open        bool
-}
-
-func main() {
-
-	items := []list.Item{
-		item{title: "Raspberry Pi’s", desc: "I have ’em all over my house"},
-		item{title: "Nutella", desc: "It's good on toast"},
-		item{title: "Bitter melon", desc: "It cools you down"},
-		item{title: "Nice socks", desc: "And by that I mean socks without holes"},
-		item{title: "Eight hours of sleep", desc: "I had this once"},
-		item{title: "Cats", desc: "Usually"},
-		item{title: "Plantasia, the album", desc: "My plants love it too"},
-		item{title: "Pour over coffee", desc: "It takes forever to make though"},
-		item{title: "VR", desc: "Virtual reality...what is there to say?"},
-		item{title: "Noguchi Lamps", desc: "Such pleasing organic forms"},
-		item{title: "Linux", desc: "Pretty much the best OS"},
-		item{title: "Business school", desc: "Just kidding"},
-		item{title: "Pottery", desc: "Wet clay is a great feeling"},
-		item{title: "Shampoo", desc: "Nothing like clean hair"},
-		item{title: "Table tennis", desc: "It’s surprisingly exhausting"},
-		item{title: "Milk crates", desc: "Great for packing in your extra stuff"},
-		item{title: "Afternoon tea", desc: "Especially the tea sandwich part"},
-		item{title: "Stickers", desc: "The thicker the vinyl the better"},
-		item{title: "20° Weather", desc: "Celsius, not Fahrenheit"},
-		item{title: "Warm light", desc: "Like around 2700 Kelvin"},
-		item{title: "The vernal equinox", desc: "The autumnal equinox is pretty good too"},
-		item{title: "Gaffer’s tape", desc: "Basically sticky fabric"},
-		item{title: "Terrycloth", desc: "In other words, towel fabric"},
+	if m.responses == 0 {
+		return fmt.Sprintf("%s Events received: %d\n\nPress any key to exit\n", m.spinner.View(), m.responses)
+	} else {
+		return string(<-m.response)
 	}
-
-	m := model{list: list.New(items, list.NewDefaultDelegate(), 0, 0)}
-	m.list.Title = "Merge Requests"
-
-	p := tea.NewProgram(m, tea.WithAltScreen())
-
-	err := p.Start()
-	utils.Must("Error running program: %g", err)
-
-	req, err := http.NewRequest("GET", "https://gitlab.com/api/v4/projects/40444811/merge_requests", nil)
-	req.Header.Set("PRIVATE-TOKEN", "private-token-here")
-	utils.Must("Error setting up requet: %g", err)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	utils.Must("Error fetching MRs: %g", err)
-
-	body, err := ioutil.ReadAll(resp.Body)
-	utils.Must("Error reading body response: %g", err)
-
-	log.Println(string(body))
 }
