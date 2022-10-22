@@ -16,6 +16,7 @@ func main() {
 }
 
 type Model struct {
+	count int
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -23,7 +24,7 @@ func (m *Model) Init() tea.Cmd {
 }
 
 func (m *Model) View() string {
-	return "Hello from Tea"
+	return fmt.Sprintf("count: %d", m.count)
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -32,6 +33,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "up":
+			m.count++
+		case "down":
+			m.count--
 		}
 
 	}
